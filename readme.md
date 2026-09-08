@@ -111,8 +111,7 @@ Content-Type: application/json
 Example request:
 
 ```json
-{
-  "language": "rust",
+{ç
   "code": "fn main() { println!(\"Hello, Rust!\"); }"
 }
 ```
