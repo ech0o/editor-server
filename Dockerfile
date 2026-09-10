@@ -1,5 +1,5 @@
 # ---------- Build ----------
-FROM rust:1.89-slim AS builder
+FROM rust:1.98-slim AS builder
 ENV SQLX_OFFLINE=true
 WORKDIR /app
 
