@@ -1,11 +1,15 @@
 use std::fmt::{Display, Formatter};
-
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-
+use crate::error::ApiError;
 use crate::jobs::Job;
 
-#[derive(Debug, Clone, Serialize, Deserialize, Copy)]
+const MAX_CODE_SIZE: usize = 32 * 1024;
+const MAX_STDIN_SIZE: usize = 16 * 1024;
+
+#[derive(Debug, Clone, Serialize, Deserialize, Copy, sqlx::Type)]
+#[sqlx(type_name = "text")]
 #[serde(rename_all = "snake_case")]
 pub enum RunStatus {
     Accepted,
@@ -94,6 +98,15 @@ pub struct RunRequest {
     pub code: String,
 }
 
+impl RunRequest {
+    pub fn validate(&self) -> anyhow::Result<(), ApiError> {
+        if self.code.len() > MAX_CODE_SIZE {
+             return Err(ApiError::PayloadTooLarge);
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Serialize, Clone)]
 pub struct JobIdResponse {
     pub job_id: Uuid,
@@ -120,4 +133,26 @@ impl From<Job> for JobResponse {
             exit_code: job.exit_code,
         }
     }
+}
+#[derive(Debug,Deserialize)]
+pub struct GithubTokenResponse {
+    pub access_token: String,
+    pub token_type: String,
+    pub scope: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GithubUser{
+    pub id: Uuid,
+    pub github_id: i64,
+    pub login: String,
+    pub avatar_url: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GithubCallback{
+    pub code: String,
+    pub state: String,
 }
