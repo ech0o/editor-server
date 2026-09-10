@@ -1,6 +1,11 @@
-use std::sync::Arc;
+pub(crate) use std::sync::Arc;
 
 use crate::{jobs::JobStore, producer::KafkaProducer};
+use crate::apikey::ApiKey;
+use crate::apikey_store::ApikeyStore;
+use crate::config::AppConfig;
+use crate::session_store::SessionStore;
+use crate::user_store::UserStore;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -8,6 +13,10 @@ pub struct AppState {
     // pub semaphore: Arc<Semaphore>,
     pub jobs: Arc<JobStore>,
     pub kafka: KafkaProducer,
+    pub api_keys: Arc<ApikeyStore>,
+    pub config: AppConfig,
+    pub users: Arc<UserStore>,
+    pub sessions: Arc<SessionStore>,
     // pub db:Database
 }
 
@@ -15,12 +24,20 @@ impl AppState{
     pub fn new(
         job_store: Arc<JobStore>,
         kafka_producer: KafkaProducer,
+        api_keys: Arc<ApikeyStore>,
+        app_config: AppConfig,
+        users: Arc<UserStore>,
+        sessions: Arc<SessionStore>,
         // metrics: Arc<Metrics>,
     ) -> Self {
         Self {
             // semaphore: Arc::new(Semaphore::new(4)),
             jobs: job_store,
             kafka: kafka_producer,
+            api_keys,
+            config: app_config,
+            users,
+            sessions,
             // metrics,
         }
     }
