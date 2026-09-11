@@ -5,6 +5,7 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::model::RunStatus;
+use crate::user_store::User;
 
 const JOB_ADMISSION_LOCK: i64 = 0x4A4F425F41434D;
 const MAX_ACTIVE_JOBS: i64 = 100;
@@ -23,9 +24,32 @@ pub struct Job {
     pub stdout: Option<String>,
     pub stderr: Option<String>,
     pub exit_code: Option<i32>,
+    pub api_key_id: Option<Uuid>,
     pub created_at: Option<DateTime<Utc>>,
     pub heartbeat_at: Option<DateTime<Utc>>,
+    pub locked_at: Option<DateTime<Utc>>,
     pub worker_id: Option<String>,
+    pub user_id: Option<Uuid>,
+    pub lock_token: Option<Uuid>,
+    pub updated_at: Option<DateTime<Utc>>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NewJob {
+    pub id: Uuid,
+    pub user_id: Option<Uuid>,
+    pub api_key_id: Option<Uuid>,
+    pub language: String,
+    pub code: String,
+    pub status: RunStatus,
+    pub stdout: Option<String>,
+    pub stderr: Option<String>,
+    pub exit_code: Option<i32>,
+    pub created_at: Option<DateTime<Utc>>,
+    pub locked_at: Option<DateTime<Utc>>,
+    pub heartbeat_at: Option<DateTime<Utc>>,
+    pub worker_id: Option<String>,
+    pub lock_token: Option<Uuid>,
+    pub updated_at: Option<DateTime<Utc>>,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -42,7 +66,7 @@ impl JobStore {
         Self { pool }
     }
 
-    pub async fn create(&self, job: &Job) -> anyhow::Result<Job, JobStoreError> {
+    pub async fn create(&self, job: &NewJob) -> anyhow::Result<Job, JobStoreError> {
         let mut tx = self.pool.begin().await?;
 
         sqlx::query!(
@@ -71,26 +95,33 @@ impl JobStore {
             Job,
             r#"
             INSERT INTO jobs (
-                          id,
-                          language,
-                          code,
-                          status,
-                          stdout,
+                        id,
+                        language,
+                        code,
+                        status,
+                        stdout,
                         stderr,
-                        exit_code
+                        exit_code,
+                        user_id,
+                        api_key_id
                         )
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             RETURNING
                 id,
                 language,
                 code,
                 status AS "status: RunStatus",
                 stdout,
+                api_key_id,
                 stderr,
                 exit_code,
                 created_at,
                 heartbeat_at,
-                worker_id
+                user_id,
+                worker_id,
+                locked_at,
+                updated_at,
+                lock_token
             "#,
             job.id,
             "rust",
@@ -99,6 +130,8 @@ impl JobStore {
             job.stdout,
             job.stderr,
             job.exit_code,
+            job.user_id,
+            job.api_key_id
         )
         .fetch_one(&mut *tx)
         .await?;
@@ -139,7 +172,12 @@ SET status = $1 WHERE id = $2"#,
             stderr,
             exit_code,
             created_at,
-            heartbeat_at
+            user_id,
+            api_key_id,
+            heartbeat_at,
+            locked_at,
+            updated_at,
+            lock_token
         FROM jobs
         WHERE id = $1
         "#,
@@ -169,5 +207,84 @@ SET status = $1 WHERE id = $2"#,
         .execute(&self.pool)
         .await?;
         Ok(result.rows_affected() == 1)
+    }
+
+    pub async fn find_for_user(
+        &self,
+        job_id: Uuid,
+        user_id: Uuid,
+    ) -> anyhow::Result<Option<Job>, JobStoreError> {
+        let row = sqlx::query_as!(
+            Job,
+            r#"
+            SELECT
+                id,
+                user_id,
+                language,
+                code,
+                status,
+                stdout,
+                stderr,
+                exit_code,
+                api_key_id,
+                created_at,
+                heartbeat_at,
+                worker_id,
+                updated_at,
+                locked_at,
+                lock_token
+            FROM jobs
+            WHERE id = $1
+                AND user_id = $2
+            "#,
+            job_id,
+            user_id
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+
+        let Some(job) = row else {
+            return Ok(None);
+        };
+        Ok(Some(job))
+    }
+
+    pub async fn find_by_api_key(
+        &self,
+        job_id: Uuid,
+        api_key: Uuid,
+    ) -> anyhow::Result<Option<Job>, JobStoreError> {
+        let row = sqlx::query_as!(
+            Job,
+            r#"
+                SELECT
+                    id,
+                    user_id,
+                    api_key_id,
+                    language,
+                    code,
+                    status,
+                    stdout,
+                    stderr,
+                    exit_code,
+                    created_at,
+                    heartbeat_at,
+                    worker_id,
+                    updated_at,
+                    lock_token,
+                    locked_at
+                FROM jobs
+                WHERE id = $1
+                AND api_key_id = $2
+             "#,
+            job_id,
+            api_key
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        let Some(job) = row else {
+            return Ok(None);
+        };
+        Ok(Some(job))
     }
 }
