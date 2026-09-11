@@ -4,6 +4,7 @@ use crate::{jobs::JobStore, producer::KafkaProducer};
 use crate::apikey::ApiKey;
 use crate::apikey_store::ApikeyStore;
 use crate::config::AppConfig;
+use crate::job_service::JobService;
 use crate::session_store::SessionStore;
 use crate::user_store::UserStore;
 
@@ -17,6 +18,7 @@ pub struct AppState {
     pub config: AppConfig,
     pub users: Arc<UserStore>,
     pub sessions: Arc<SessionStore>,
+    pub job_service: Arc<JobService>
     // pub db:Database
 }
 
@@ -28,6 +30,7 @@ impl AppState{
         app_config: AppConfig,
         users: Arc<UserStore>,
         sessions: Arc<SessionStore>,
+        job_service: Arc<JobService>
         // metrics: Arc<Metrics>,
     ) -> Self {
         Self {
@@ -38,6 +41,7 @@ impl AppState{
             config: app_config,
             users,
             sessions,
+            job_service
             // metrics,
         }
     }
