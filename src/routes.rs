@@ -1,8 +1,14 @@
-use crate::apikey::hash_api_key;
-use crate::authenticated::Authenticated;
+use crate::apikey::{ApiKey, hash_api_key};
+use crate::authenticated::ApiKeyIdentity;
 use crate::github::generate_oauth_state;
-use crate::jobs::JobStoreError;
-use crate::model::{GithubCallback, GithubTokenResponse, GithubUser};
+use crate::job_owner::JobOwner;
+use crate::jobs::{JobStoreError, NewJob};
+use crate::middleware::require_session;
+use crate::model::{
+    ApiKeysResponse, CreateApiKeyRequest, CreateApiKeyResponse, GithubCallback,
+    GithubTokenResponse, GithubUser,
+};
+use crate::session_store::AuthenticatedUser;
 use crate::{
     error::ApiError,
     jobs::Job,
@@ -14,6 +20,7 @@ use anyhow::anyhow;
 use axum::extract::{Query, Request};
 use axum::middleware::{Next, from_fn_with_state};
 use axum::response::{Redirect, Response};
+use axum::routing::delete;
 use axum::{
     Extension, Json, Router,
     extract::{Path, State, rejection::JsonRejection},
@@ -25,55 +32,53 @@ use axum_extra::extract::cookie::CookieJar;
 use axum_extra::extract::cookie::{Cookie, SameSite};
 use headers::Authorization;
 use headers::authorization::Bearer;
+use rdkafka::client;
 use std::sync::Arc;
+use tower::ServiceExt;
 use tower::limit::ConcurrencyLimitLayer;
 use url::Url;
 use uuid::Uuid;
 
 const MAX_CONCURRENT_RUN_REQUESTS: usize = 32;
 
-pub async fn auth_middleware(
-    State(state): State<Arc<AppState>>,
-    TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
-    mut request: Request,
-    next: Next,
-) -> anyhow::Result<Response, StatusCode> {
-    let key = auth.token();
-
-    let key_hash = hash_api_key(key);
-
-    let api_key = state
-        .api_keys
-        .find_by_hash(&key_hash)
-        .await
-        .map_err(|err| {
-            tracing::error!(
-                error = %err,
-                "failed to lookup api key"
-            );
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?
-        .ok_or(StatusCode::UNAUTHORIZED)?;
-
-    request.extensions_mut().insert(Authenticated {
-        api_key_id: api_key.id,
-    });
-    Ok(next.run(request).await)
-}
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
-        // .route("/health", get(health))
-        // // .route("/container", post(create_container))
-        // // .route("/exec", get(exec))
-        // .route("/mount", get(workspace))
-        .route("/run/{job_id}", get(get_job))
+    // .route("/health", get(health))
+    // // .route("/container", post(create_container))
+    // // .route("/exec", get(exec))
+    // .route("/mount", get(workspace))
+    // .route("/run/{job_id}", get(get_job))
 }
 
 pub fn run_router() -> Router<Arc<AppState>> {
-    Router::new().route(
-        "/run",
-        post(run_handle).layer(ConcurrencyLimitLayer::new(MAX_CONCURRENT_RUN_REQUESTS)),
-    )
+    Router::new()
+        .route(
+            "/run",
+            post(run_handle).layer(ConcurrencyLimitLayer::new(MAX_CONCURRENT_RUN_REQUESTS)),
+        )
+        .route(
+            "/run/{job_id}",
+            get(get_job).layer(ConcurrencyLimitLayer::new(MAX_CONCURRENT_RUN_REQUESTS)),
+        )
+}
+pub fn web_router() -> Router<Arc<AppState>> {
+    Router::new()
+        .route(
+            "/web/run",
+            post(web_run).layer(ConcurrencyLimitLayer::new(MAX_CONCURRENT_RUN_REQUESTS)),
+        )
+        .route(
+            "/web/run/{id}",
+            get(web_get_job).layer(ConcurrencyLimitLayer::new(MAX_CONCURRENT_RUN_REQUESTS)),
+        )
+}
+
+pub fn protected_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
+    Router::new()
+        .route("/api-keys", post(create_api_keys))
+        .route("/api-keys", get(list_api_keys))
+        .route("/api-keys/{id}", delete(revoke_api_keys))
+        .layer(from_fn_with_state(state.clone(), require_session))
 }
 
 pub fn auth_router() -> Router<Arc<AppState>> {
@@ -83,7 +88,7 @@ pub fn auth_router() -> Router<Arc<AppState>> {
 }
 
 async fn run_handle(
-    Extension(auth): Extension<Authenticated>,
+    Extension(api_key): Extension<ApiKeyIdentity>,
     State(state): State<Arc<AppState>>,
     results: Result<Json<RunRequest>, JsonRejection>,
 ) -> Result<Json<JobIdResponse>, ApiError> {
@@ -111,40 +116,58 @@ async fn run_handle(
         }
     })?;
 
-    let job = Job {
-        id: Uuid::new_v4(),
-        language: "rust".to_string(),
-        code: request.code,
-        status: RunStatus::Accepted,
-        stdout: None,
-        stderr: None,
-        exit_code: None,
-        created_at: None,
-        worker_id: None,
-        heartbeat_at: None,
-    };
-    let job_id = job.id;
-    let job_msg = JobMessage { job_id };
-    state.jobs.create(&job).await?;
-    if let Err(err) = state.kafka.send_job(&job_msg).await {
-        tracing::error!(
-            job_id=%job_id,
-            error=%err,
-            "failed to send job to kafka"
-        );
+    let res = state
+        .job_service
+        .submit(
+            JobOwner::Apikey {
+                api_key_id: api_key.api_key_id,
+            },
+            request,
+        )
+        .await?;
+    Ok(Json(res))
+}
 
-        let _ = state.jobs.mark_failed_if_queued(job_id).await;
-        return Err(ApiError::Internal(anyhow!("failed to send job to kafka")));
-    }
-    Ok(Json(JobIdResponse { job_id }))
+pub async fn web_run(
+    Extension(user): Extension<AuthenticatedUser>,
+    State(state): State<Arc<AppState>>,
+    req: Result<Json<RunRequest>, JsonRejection>,
+) -> anyhow::Result<Json<JobIdResponse>, ApiError> {
+    let Json(request) = req.map_err(|err| match err.status() {
+        StatusCode::PAYLOAD_TOO_LARGE => {
+            tracing::error!(
+                error=%err,
+                "Invalid JSON request"
+            );
+            ApiError::PayloadTooLarge
+        }
+        _ => {
+            println!("{}", err.status());
+            tracing::error!(
+                error=%err,
+                "Invalid JSON request"
+            );
+            ApiError::InvalidJson
+        }
+    })?;
+    let job_service = state.job_service.clone();
+    let owner = crate::job_owner::JobOwner::User {
+        user_id: user.user_id,
+    };
+    let response = job_service.submit(owner, request).await?;
+    Ok(Json(response))
 }
 
 async fn get_job(
+    Extension(api_key): Extension<ApiKeyIdentity>,
     State(state): State<Arc<AppState>>,
     Path(job_id): Path<Uuid>,
 ) -> Result<Json<JobResponse>, ApiError> {
-    let job = state.jobs.get(job_id).await?.ok_or(ApiError::JobNotFound)?;
-
+    let job = state
+        .jobs
+        .find_by_api_key(job_id, api_key.api_key_id)
+        .await?
+        .ok_or(ApiError::JobNotFound)?;
     Ok(Json(job.into()))
 }
 
@@ -183,8 +206,27 @@ pub async fn github_callback(
     if cookie_state.value() != query.state {
         return Err(ApiError::Unauthorized);
     }
+    tracing::info!(proxy=%state.config.reqwest_proxy,"proxy setting");
+    let proxy = match reqwest::Proxy::all(state.config.reqwest_proxy.clone()) {
+        Ok(proxy) => proxy,
+        Err(err) => {
+            tracing::error!(error=%err, "failed to create reqwest proxy");
+            return Err(ApiError::GithubRequest(err));
+        }
+    };
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder().proxy(proxy).build();
+
+    let client = match client {
+        Ok(client) => client,
+        Err(err) => {
+            tracing::error!(error=%err, "failed to build reqwest client");
+            return Err(ApiError::GithubRequest(err));
+        }
+    };
+
+    let res = client.get("https://www.google.com").send().await?;
+    println!("Status: {}", res.status());
 
     let token = client
         .post("https://github.com/login/oauth/access_token")
@@ -204,6 +246,7 @@ pub async fn github_callback(
         .await
         .map_err(ApiError::GithubRequest)?;
 
+    tracing::info!("token:{:?}", token);
     let github_user = client
         .get("https://api.github.com/user")
         .header(reqwest::header::ACCEPT, "application/vnd.github+json")
@@ -213,15 +256,17 @@ pub async fn github_callback(
         .send()
         .await
         .map_err(ApiError::GithubRequest)?
-        .error_for_status()
-        .map_err(ApiError::GithubRequest)?
+        .error_for_status()?
         .json::<GithubUser>()
         .await
         .map_err(ApiError::GithubRequest)?;
-
+    tracing::info!("github_user:{:?}", github_user);
+    // tracing::info!(headers=?res.headers(), "github_user_response:");
+    // let body = res.text().await.map_err(ApiError::GithubRequest)?;
+    // tracing::info!("github_user_response_body:{}", body);
     let user = state.users.find_or_create_github_user(&github_user).await?;
 
-    let (_session,session_token) = state
+    let (_session, session_token) = state
         .sessions
         .create(user.id)
         .await
@@ -233,7 +278,85 @@ pub async fn github_callback(
         .secure(state.config.cookie_secure)
         .max_age(time::Duration::days(30))
         .build();
+    let is_login_cookie = Cookie::build(("is_login", "true"))
+        .path("/")
+        .http_only(false)
+        .same_site(SameSite::Lax)
+        .secure(state.config.cookie_secure)
+        .max_age(time::Duration::days(30))
+        .build();
 
-    let jar = jar.remove(Cookie::from("oauth_state")).add(session_cookie);
-    Ok((jar, Redirect::to("/")))
+    let jar = jar
+        .remove(Cookie::from("oauth_state"))
+        .add(session_cookie)
+        .add(is_login_cookie);
+    Ok((
+        jar,
+        Redirect::to(state.config.redirect_frontend_url.as_str()),
+    ))
+}
+
+pub async fn create_api_keys(
+    Extension(user): Extension<AuthenticatedUser>,
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<CreateApiKeyRequest>,
+) -> anyhow::Result<Json<CreateApiKeyResponse>, ApiError> {
+    let name = req.name.trim();
+    if name.is_empty() {
+        return Err(ApiError::InvalidRequest(anyhow!("name cannot be empty")));
+    }
+
+    if name.len() > 100 {
+        return Err(ApiError::InvalidRequest(anyhow!("name too long")));
+    }
+
+    let (api_key, raw_key) = state
+        .api_keys
+        .create(user.user_id, name)
+        .await
+        .map_err(ApiError::DataBase)?;
+
+    Ok(Json(CreateApiKeyResponse {
+        id: api_key.id,
+        name: api_key.name,
+        key: raw_key,
+    }))
+}
+
+pub async fn list_api_keys(
+    Extension(user): Extension<AuthenticatedUser>,
+    State(state): State<Arc<AppState>>,
+) -> anyhow::Result<Json<Vec<ApiKeysResponse>>, ApiError> {
+    let keys = state
+        .api_keys
+        .list_by_user(user.user_id)
+        .await
+        .map_err(ApiError::DataBase)?;
+    Ok(Json(keys))
+}
+
+pub async fn revoke_api_keys(
+    Extension(user): Extension<AuthenticatedUser>,
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+) -> anyhow::Result<StatusCode, ApiError> {
+    let revoked = state
+        .api_keys
+        .revoke(id, user.user_id)
+        .await
+        .map_err(ApiError::DataBase)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn web_get_job(
+    Extension(user): Extension<AuthenticatedUser>,
+    State(state): State<Arc<AppState>>,
+    Path(job_id): Path<Uuid>,
+) -> Result<Json<JobResponse>, ApiError> {
+    let job = state
+        .jobs
+        .find_for_user(job_id, user.user_id)
+        .await?
+        .ok_or(ApiError::JobNotFound)?;
+    Ok(Json(JobResponse::from(job)))
 }
