@@ -8,6 +8,7 @@ use uuid::Uuid;
 pub struct ApiKey {
     pub id: Uuid,
     pub name: String,
+    pub user_id: Option<Uuid>,
     pub key_hash: Vec<u8>,
     pub created_at: DateTime<Utc>,
     pub revoked_at: Option<DateTime<Utc>>,
