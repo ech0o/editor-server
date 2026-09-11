@@ -3,7 +3,7 @@ use axum::extract::State;
 use std::sync::Arc;
 use uuid::Uuid;
 
-#[derive(Debug, Clone)]
-pub struct Authenticated {
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ApiKeyIdentity {
     pub api_key_id: Uuid,
 }
