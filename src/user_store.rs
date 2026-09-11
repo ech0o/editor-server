@@ -24,6 +24,7 @@ impl UserStore {
         Self { pool: db }
     }
     pub async fn find_or_create_github_user(&self, github_user: &GithubUser) -> anyhow::Result<User> {
+        let user_id = Uuid::new_v4();
         let result = sqlx::query_as!(
             User,
             r#"INSERT INTO users (
@@ -51,7 +52,7 @@ impl UserStore {
                               created_at,
                               updated_at
                              "#,
-            github_user.id,
+            user_id,
             github_user.github_id,
             github_user.login,
             github_user.avatar_url,
