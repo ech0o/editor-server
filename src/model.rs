@@ -143,8 +143,10 @@ pub struct GithubTokenResponse {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GithubUser{
-    pub id: Uuid,
+    #[serde(rename = "id")]
     pub github_id: i64,
+    #[serde(skip)]
+    pub id: Uuid,
     pub login: String,
     pub avatar_url: Option<String>,
     pub created_at: DateTime<Utc>,
@@ -155,4 +157,23 @@ pub struct GithubUser{
 pub struct GithubCallback{
     pub code: String,
     pub state: String,
+}
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CreateApiKeyRequest {
+    pub name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CreateApiKeyResponse {
+    pub id: Uuid,
+    pub name: String,
+    pub key: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ApiKeysResponse {
+    pub id: Uuid,
+    pub name: String,
+    pub created_at: DateTime<Utc>,
+    pub revoked_at: Option<DateTime<Utc>>,
 }
