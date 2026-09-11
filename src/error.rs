@@ -32,6 +32,9 @@ pub enum ApiError {
     GithubRequest(#[from] reqwest::Error),
     #[error("database error")]
     DataBase(#[source] sqlx::Error),
+
+    #[error(transparent)]
+    InvalidRequest(anyhow::Error),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -139,6 +142,13 @@ impl IntoResponse for ApiError {
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
                     error: String::from("database error"),
+                }),
+            )
+                .into_response(),
+            ApiError::InvalidRequest(err) => (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: String::from(err.to_string()),
                 }),
             )
                 .into_response(),
