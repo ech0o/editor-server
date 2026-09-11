@@ -15,6 +15,11 @@ pub struct Session{
     pub created_at: DateTime<Utc>,
 }
 
+#[derive(Clone,Debug)]
+pub struct AuthenticatedUser{
+    pub user_id: Uuid,
+}
+
 pub fn generate_session_token() -> String{
     let mut bytes = [0u8; 32];
 
