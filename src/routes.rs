@@ -91,6 +91,7 @@ pub fn auth_router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/auth/github", get(github_login))
         .route("/auth/github/callback", get(github_callback))
+        .route("/auth/is-login", get(is_login))
 }
 
 async fn run_handle(
@@ -365,4 +366,10 @@ pub async fn web_get_job(
         .await?
         .ok_or(ApiError::JobNotFound)?;
     Ok(Json(JobResponse::from(job)))
+}
+
+pub async fn is_login(
+    Extension(user): Extension<AuthenticatedUser>,
+) -> Result<Json<bool>, ApiError> {
+    Ok(Json(true))
 }
