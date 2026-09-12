@@ -6,4 +6,5 @@ use uuid::Uuid;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ApiKeyIdentity {
     pub api_key_id: Uuid,
+    pub user_id: Uuid,
 }
