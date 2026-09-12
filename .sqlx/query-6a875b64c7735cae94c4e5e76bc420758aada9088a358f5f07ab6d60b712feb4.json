@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT\n            id,\n            language,\n            code,\n            status,\n            stdout,\n            worker_id,\n            stderr,\n            exit_code,\n            created_at,\n            heartbeat_at\n        FROM jobs\n        WHERE id = $1\n        ",
+  "query": "\n        SELECT\n            id,\n            language,\n            code,\n            status,\n            stdout,\n            worker_id,\n            stderr,\n            exit_code,\n            created_at,\n            user_id,\n            api_key_id,\n            heartbeat_at,\n            locked_at,\n            updated_at,\n            lock_token\n        FROM jobs\n        WHERE id = $1\n        ",
   "describe": {
     "columns": [
       {
@@ -50,8 +50,33 @@
       },
       {
         "ordinal": 9,
+        "name": "user_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 10,
+        "name": "api_key_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 11,
         "name": "heartbeat_at",
         "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 12,
+        "name": "locked_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 13,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 14,
+        "name": "lock_token",
+        "type_info": "Uuid"
       }
     ],
     "parameters": {
@@ -68,9 +93,14 @@
       true,
       true,
       true,
+      true,
+      true,
+      true,
+      true,
+      true,
       false,
       true
     ]
   },
-  "hash": "7ce19aed3bdb2be0fe8dd4e039bfdc881e829ef664679d3b19f133b9da88793f"
+  "hash": "6a875b64c7735cae94c4e5e76bc420758aada9088a358f5f07ab6d60b712feb4"
 }
