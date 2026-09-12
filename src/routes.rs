@@ -50,14 +50,17 @@ pub fn router() -> Router<Arc<AppState>> {
     // .route("/run/{job_id}", get(get_job))
 }
 
-pub fn run_router() -> Router<Arc<AppState>> {
+pub fn api_router() -> Router<Arc<AppState>> {
     Router::new()
         .route(
-            "/run",
+            "/api/run",
             post(run_handle).layer(ConcurrencyLimitLayer::new(MAX_CONCURRENT_RUN_REQUESTS)),
         )
+}
+pub fn api_job_router() -> Router<Arc<AppState>> {
+    Router::new()
         .route(
-            "/run/{job_id}",
+            "/api/run/{job_id}",
             get(get_job).layer(ConcurrencyLimitLayer::new(MAX_CONCURRENT_RUN_REQUESTS)),
         )
 }
@@ -67,6 +70,9 @@ pub fn web_router() -> Router<Arc<AppState>> {
             "/web/run",
             post(web_run).layer(ConcurrencyLimitLayer::new(MAX_CONCURRENT_RUN_REQUESTS)),
         )
+}
+pub fn web_job_router() -> Router<Arc<AppState>> {
+    Router::new()
         .route(
             "/web/run/{id}",
             get(web_get_job).layer(ConcurrencyLimitLayer::new(MAX_CONCURRENT_RUN_REQUESTS)),
