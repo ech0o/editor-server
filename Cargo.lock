@@ -420,6 +420,7 @@ dependencies = [
  "axum-extra",
  "axum-governor",
  "chrono",
+ "dotenvy",
  "governor",
  "headers",
  "hex",
