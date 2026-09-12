@@ -212,16 +212,16 @@ pub async fn github_callback(
     if cookie_state.value() != query.state {
         return Err(ApiError::Unauthorized);
     }
-    tracing::info!(proxy=%state.config.reqwest_proxy,"proxy setting");
-    let proxy = match reqwest::Proxy::all(state.config.reqwest_proxy.clone()) {
-        Ok(proxy) => proxy,
-        Err(err) => {
-            tracing::error!(error=%err, "failed to create reqwest proxy");
-            return Err(ApiError::GithubRequest(err));
-        }
-    };
+    // tracing::info!(proxy=%state.config.reqwest_proxy,"proxy setting");
+    // let proxy = match reqwest::Proxy::all(state.config.reqwest_proxy.clone()) {
+    //     Ok(proxy) => proxy,
+    //     Err(err) => {
+    //         tracing::error!(error=%err, "failed to create reqwest proxy");
+    //         return Err(ApiError::GithubRequest(err));
+    //     }
+    // };
 
-    let client = reqwest::Client::builder().proxy(proxy).build();
+    let client = reqwest::Client::builder().build();
 
     let client = match client {
         Ok(client) => client,
@@ -231,8 +231,8 @@ pub async fn github_callback(
         }
     };
 
-    let res = client.get("https://www.google.com").send().await?;
-    println!("Status: {}", res.status());
+    // let res = client.get("https://www.google.com").send().await?;
+    // println!("Status: {}", res.status());
 
     let token = client
         .post("https://github.com/login/oauth/access_token")
