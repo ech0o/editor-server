@@ -60,9 +60,13 @@ pub async fn auth_middleware(
             StatusCode::INTERNAL_SERVER_ERROR
         })?
         .ok_or(StatusCode::UNAUTHORIZED)?;
-
+    let Some(user_id) = api_key.user_id else{
+        tracing::error!("api key user_id does not exist");
+        return Err(StatusCode::UNAUTHORIZED)
+    };
     request.extensions_mut().insert(ApiKeyIdentity {
         api_key_id: api_key.id,
+        user_id
     });
     Ok(next.run(request).await)
 }
