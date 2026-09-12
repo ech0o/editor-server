@@ -1,7 +1,7 @@
 use axum::Router;
 use axum::extract::DefaultBodyLimit;
 use axum::handler::HandlerWithoutStateExt;
-use axum::http::{header, HeaderValue, Method};
+use axum::http::{HeaderValue, Method, header};
 use axum::middleware::from_fn_with_state;
 use axum_governor::{
     GovernorConfigBuilder, GovernorLayer, PeerIp, Quota,
@@ -18,8 +18,10 @@ use crate::apikey_store::ApikeyStore;
 use crate::authenticated::ApiKeyIdentity;
 use crate::job_service::JobService;
 use crate::middleware::{auth_middleware, require_session};
-use crate::routes::{auth_router, protected_router, run_router, web_router};
-use crate::session_store::SessionStore;
+use crate::routes::{
+    api_job_router, api_router, auth_router, protected_router, web_job_router, web_router,
+};
+use crate::session_store::{AuthenticatedUser, SessionStore};
 use crate::user_store::UserStore;
 use crate::{jobs::JobStore, producer::KafkaProducer, state::AppState};
 
@@ -65,22 +67,26 @@ async fn main() -> anyhow::Result<()> {
     let cors = CorsLayer::new()
         .allow_origin("http://localhost:3000".parse::<HeaderValue>()?)
         .allow_methods(vec![Method::GET, Method::POST, Method::PUT, Method::DELETE])
-        .allow_headers([
-        header::CONTENT_TYPE,
-        header::AUTHORIZATION,
-    ])
+        .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION])
         .allow_credentials(true);
 
-    let run_rate_limit = GovernorConfigBuilder::default()
+    let global_ip_config = GovernorConfigBuilder::default()
         .with_extractor(PeerIp::default())
         .expect_connect_info()
+        .quota_default(Quota::requests_per_second(nz!(20u32)))
+        .finish()?;
+
+    let web_rate_limit_config = GovernorConfigBuilder::default()
+        .with_extractor(GonvernorExtension::<AuthenticatedUser>::new())
         .quota_default(Quota::requests_per_second(nz!(5u32)))
         .finish()?;
+    let web_job_rate_limit_config = GovernorConfigBuilder::default()
+        .with_extractor(GonvernorExtension::<AuthenticatedUser>::new())
+        .quota_default(Quota::requests_per_second(nz!(30u32)))
+        .finish()?;
+
     let session = Arc::new(SessionStore::new(db.clone()));
-    let rate_limit = GovernorConfigBuilder::default()
-        .with_extractor(GonvernorExtension::<ApiKeyIdentity>::new())
-        .quota_default(Quota::requests_per_second(nz!(5u32)))
-        .finish()?;
+
     let job_service = JobService {
         jobs: jobs.clone(),
         producer: kafka.clone(),
@@ -94,11 +100,29 @@ async fn main() -> anyhow::Result<()> {
         session,
         Arc::new(job_service),
     ));
-    let run_routes = run_router()
-        .layer(GovernorLayer::new(rate_limit))
+
+    let api_key_config = GovernorConfigBuilder::default()
+        .with_extractor(GonvernorExtension::<ApiKeyIdentity>::new())
+        .quota_default(Quota::requests_per_second(nz!(5u32)))
+        .finish()?;
+    let api_key_job_config = GovernorConfigBuilder::default()
+        .with_extractor(GonvernorExtension::<ApiKeyIdentity>::new())
+        .quota_default(Quota::requests_per_second(nz!(30u32)))
+        .finish()?;
+    let api_routes = api_router()
+        .layer(GovernorLayer::new(api_key_config))
         .layer(from_fn_with_state(state.clone(), auth_middleware));
+
+    let api_job_routes = api_job_router()
+        .layer(GovernorLayer::new(api_key_job_config))
+        .layer(from_fn_with_state(state.clone(), auth_middleware));
+
     let web_routes = web_router()
-        // .layer(GovernorLayer::new(rate_limit))
+        .layer(GovernorLayer::new(web_rate_limit_config))
+        .layer(from_fn_with_state(state.clone(), require_session));
+
+    let web_job_routes = web_job_router()
+        .layer(GovernorLayer::new(web_job_rate_limit_config))
         .layer(from_fn_with_state(state.clone(), require_session));
 
     let auth_routes = auth_router();
@@ -106,10 +130,13 @@ async fn main() -> anyhow::Result<()> {
     let router = Router::new()
         .layer(DefaultBodyLimit::max(64 * 1024))
         // .merge(routes::router())
-        .merge(run_routes)
+        .merge(api_routes)
+        .merge(api_job_routes)
         .merge(auth_routes)
         .merge(web_routes)
+        .merge(web_job_routes)
         .merge(protected_routes)
+        .layer(GovernorLayer::new(global_ip_config))
         .layer(cors)
         .with_state(state);
     let listener = TcpListener::bind("0.0.0.0:4000").await?;
