@@ -15,7 +15,7 @@ pub struct Session{
     pub created_at: DateTime<Utc>,
 }
 
-#[derive(Clone,Debug)]
+#[derive(Clone,Debug,PartialEq, Eq, Hash)]
 pub struct AuthenticatedUser{
     pub user_id: Uuid,
 }
