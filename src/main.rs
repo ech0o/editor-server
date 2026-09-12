@@ -19,7 +19,7 @@ use crate::authenticated::ApiKeyIdentity;
 use crate::job_service::JobService;
 use crate::middleware::{auth_middleware, require_session};
 use crate::routes::{
-    api_job_router, api_router, auth_router, protected_router, web_job_router, web_router,
+    api_job_router, api_router, auth_router, is_login_router, protected_router, web_job_router, web_router,
 };
 use crate::session_store::{AuthenticatedUser, SessionStore};
 use crate::user_store::UserStore;
@@ -125,6 +125,8 @@ async fn main() -> anyhow::Result<()> {
         .layer(GovernorLayer::new(web_job_rate_limit_config))
         .layer(from_fn_with_state(state.clone(), require_session));
 
+    let is_login_routes = is_login_router(state.clone());
+
     let auth_routes = auth_router();
     let protected_routes = protected_router(state.clone());
     let router = Router::new()
@@ -136,6 +138,7 @@ async fn main() -> anyhow::Result<()> {
         .merge(web_routes)
         .merge(web_job_routes)
         .merge(protected_routes)
+        .merge(is_login_routes)
         .layer(GovernorLayer::new(global_ip_config))
         .layer(cors)
         .with_state(state);
