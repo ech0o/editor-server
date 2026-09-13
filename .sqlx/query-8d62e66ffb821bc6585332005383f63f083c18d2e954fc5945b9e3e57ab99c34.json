@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO oauth_codes (code_hash, user_id, expires_at)\n            VALUES ($1, $2, NOW() + INTERVAL '60 seconds')\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bytea",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8d62e66ffb821bc6585332005383f63f083c18d2e954fc5945b9e3e57ab99c34"
+}
