@@ -35,6 +35,8 @@ pub enum ApiError {
 
     #[error(transparent)]
     InvalidRequest(anyhow::Error),
+    #[error("wrong authorization code")]
+    InvalidAuthorizationCode
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -149,6 +151,13 @@ impl IntoResponse for ApiError {
                 StatusCode::BAD_REQUEST,
                 Json(ErrorResponse {
                     error: String::from(err.to_string()),
+                }),
+            )
+                .into_response(),
+            ApiError::InvalidAuthorizationCode => (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: String::from("invalid authorization code"),
                 }),
             )
                 .into_response(),
