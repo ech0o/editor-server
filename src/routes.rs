@@ -3,11 +3,13 @@ use crate::authenticated::ApiKeyIdentity;
 use crate::github::generate_oauth_state;
 use crate::job_owner::JobOwner;
 use crate::jobs::{JobStoreError, NewJob};
-use crate::middleware::require_session;
+use crate::jwt_service::{ExchangeCodeRequest, ExchangeCodeResponse};
+use crate::middleware::{jwt_middleware, require_session, AuthUser};
 use crate::model::{
     ApiKeysResponse, CreateApiKeyRequest, CreateApiKeyResponse, GithubCallback,
     GithubTokenResponse, GithubUser,
 };
+use crate::oauth_code_store::OauthCodeStore;
 use crate::session_store::AuthenticatedUser;
 use crate::{
     error::ApiError,
@@ -51,32 +53,28 @@ pub fn router() -> Router<Arc<AppState>> {
 }
 
 pub fn api_router() -> Router<Arc<AppState>> {
-    Router::new()
-        .route(
-            "/api/run",
-            post(run_handle).layer(ConcurrencyLimitLayer::new(MAX_CONCURRENT_RUN_REQUESTS)),
-        )
+    Router::new().route(
+        "/api/run",
+        post(run_handle).layer(ConcurrencyLimitLayer::new(MAX_CONCURRENT_RUN_REQUESTS)),
+    )
 }
 pub fn api_job_router() -> Router<Arc<AppState>> {
-    Router::new()
-        .route(
-            "/api/run/{job_id}",
-            get(get_job).layer(ConcurrencyLimitLayer::new(MAX_CONCURRENT_RUN_REQUESTS)),
-        )
+    Router::new().route(
+        "/api/run/{job_id}",
+        get(get_job).layer(ConcurrencyLimitLayer::new(MAX_CONCURRENT_RUN_REQUESTS)),
+    )
 }
 pub fn web_router() -> Router<Arc<AppState>> {
-    Router::new()
-        .route(
-            "/web/run",
-            post(web_run).layer(ConcurrencyLimitLayer::new(MAX_CONCURRENT_RUN_REQUESTS)),
-        )
+    Router::new().route(
+        "/web/run",
+        post(web_run).layer(ConcurrencyLimitLayer::new(MAX_CONCURRENT_RUN_REQUESTS)),
+    )
 }
 pub fn web_job_router() -> Router<Arc<AppState>> {
-    Router::new()
-        .route(
-            "/web/run/{id}",
-            get(web_get_job).layer(ConcurrencyLimitLayer::new(MAX_CONCURRENT_RUN_REQUESTS)),
-        )
+    Router::new().route(
+        "/web/run/{id}",
+        get(web_get_job).layer(ConcurrencyLimitLayer::new(MAX_CONCURRENT_RUN_REQUESTS)),
+    )
 }
 
 pub fn protected_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
@@ -91,14 +89,13 @@ pub fn auth_router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/auth/github", get(github_login))
         .route("/auth/github/callback", get(github_callback))
-
+        .route("/auth/exchange",post(exchange_code))
 }
 
-pub fn is_login_router(state:Arc<AppState>) -> Router<Arc<AppState>> {
+pub fn is_login_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
         .route("/check", get(is_login))
-        .route("/test-cookie", get(test_cookie))
-        .layer(from_fn_with_state(state, require_session))
+        .layer(from_fn_with_state(state, jwt_middleware))
 }
 
 async fn run_handle(
@@ -143,7 +140,7 @@ async fn run_handle(
 }
 
 pub async fn web_run(
-    Extension(user): Extension<AuthenticatedUser>,
+    Extension(user): Extension<AuthUser>,
     State(state): State<Arc<AppState>>,
     req: Result<Json<RunRequest>, JsonRejection>,
 ) -> anyhow::Result<Json<JobIdResponse>, ApiError> {
@@ -214,7 +211,7 @@ pub async fn github_callback(
     State(state): State<Arc<AppState>>,
     jar: CookieJar,
     Query(query): Query<GithubCallback>,
-) -> anyhow::Result<(CookieJar, Redirect), ApiError> {
+) -> anyhow::Result<Redirect, ApiError> {
     let cookie_state = jar.get("oauth_state").ok_or(ApiError::Unauthorized)?;
 
     if cookie_state.value() != query.state {
@@ -279,35 +276,38 @@ pub async fn github_callback(
     // let body = res.text().await.map_err(ApiError::GithubRequest)?;
     // tracing::info!("github_user_response_body:{}", body);
     let user = state.users.find_or_create_github_user(&github_user).await?;
+    let code = state.oauth_code_store.create_oauth_code(user.id).await?;
+    let redirect_url = format!(
+        "{}?code={}",
+        state.config.redirect_frontend_url.as_str(),
+        urlencoding::encode(&code)
+    );
 
-    let (_session, session_token) = state
-        .sessions
-        .create(user.id)
-        .await
-        .map_err(ApiError::DataBase)?;
-    let session_cookie = Cookie::build(("session", session_token))
-        .path("/")
-        .http_only(true)
-        .same_site(SameSite::None)
-        .secure(state.config.cookie_secure)
-        .max_age(time::Duration::days(30))
-        .build();
-    let is_login_cookie = Cookie::build(("is_login", "true"))
-        .path("/")
-        .http_only(false)
-        .same_site(SameSite::Lax)
-        .secure(state.config.cookie_secure)
-        .max_age(time::Duration::days(30))
-        .build();
+    // let (_session, session_token) = state
+    //     .sessions
+    //     .create(user.id)
+    //     .await
+    //     .map_err(ApiError::DataBase)?;
+    // let session_cookie = Cookie::build(("session", session_token))
+    //     .path("/")
+    //     .http_only(true)
+    //     .same_site(SameSite::None)
+    //     .secure(state.config.cookie_secure)
+    //     .max_age(time::Duration::days(30))
+    //     .build();
+    // let is_login_cookie = Cookie::build(("is_login", "true"))
+    //     .path("/")
+    //     .http_only(false)
+    //     .same_site(SameSite::Lax)
+    //     .secure(state.config.cookie_secure)
+    //     .max_age(time::Duration::days(30))
+    //     .build();
 
-    let jar = jar
-        .remove(Cookie::from("oauth_state"))
-        .add(session_cookie)
-        .add(is_login_cookie);
-    Ok((
-        jar,
-        Redirect::to(state.config.redirect_frontend_url.as_str()),
-    ))
+    // let jar = jar
+    //     .remove(Cookie::from("oauth_state"))
+    //     .add(session_cookie)
+    //     .add(is_login_cookie);
+    Ok(Redirect::to(redirect_url.as_str()))
 }
 
 pub async fn create_api_keys(
@@ -363,7 +363,7 @@ pub async fn revoke_api_keys(
 }
 
 pub async fn web_get_job(
-    Extension(user): Extension<AuthenticatedUser>,
+    Extension(user): Extension<AuthUser>,
     State(state): State<Arc<AppState>>,
     Path(job_id): Path<Uuid>,
 ) -> Result<Json<JobResponse>, ApiError> {
@@ -376,12 +376,29 @@ pub async fn web_get_job(
 }
 
 pub async fn is_login(
-    Extension(_user): Extension<AuthenticatedUser>,
+    Extension(_user): Extension<AuthUser>,
 ) -> Result<Json<bool>, ApiError> {
     Ok(Json(true))
 }
 pub async fn test_cookie(
     Extension(user): Extension<AuthenticatedUser>,
 ) -> Result<Json<String>, ApiError> {
+    tracing::info!("test_cookie called for user_id: {}", user.user_id);
     Ok(Json(user.user_id.to_string()))
+}
+
+pub async fn exchange_code(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<ExchangeCodeRequest>,
+) -> Result<Json<ExchangeCodeResponse>, ApiError> {
+    let user_id = state
+        .oauth_code_store
+        .exchange_code(&req.code)
+        .await?
+        .ok_or(ApiError::InvalidAuthorizationCode)?;
+    let token = state.jwt.create_token(user_id)?;
+    Ok(Json(ExchangeCodeResponse {
+        access_token: token,
+        token_type: "Bearer".to_string(),
+    }))
 }
