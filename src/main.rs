@@ -8,6 +8,7 @@ use axum_governor::{
     extractor::Extension as GonvernorExtension, nz,
 };
 use sqlx::PgPool;
+use tracing::Level;
 use std::net::SocketAddr;
 use std::num::NonZeroU32;
 use std::sync::Arc;
@@ -49,7 +50,10 @@ mod user_store;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt::init();
+    let subscriber = tracing_subscriber::FmtSubscriber::builder()
+        .with_max_level(Level::INFO)
+        .finish();
+    tracing::subscriber::set_global_default(subscriber)?;
     // dotenvy::dotenv()?;
     let db_addr = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://postgres:example@localhost:5432/postgres".to_string());
