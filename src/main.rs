@@ -8,19 +8,22 @@ use axum_governor::{
     extractor::Extension as GonvernorExtension, nz,
 };
 use sqlx::PgPool;
-use tracing::Level;
 use std::net::SocketAddr;
 use std::num::NonZeroU32;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tower_http::cors::{Any, CorsLayer};
+use tracing::Level;
 
 use crate::apikey_store::ApikeyStore;
 use crate::authenticated::ApiKeyIdentity;
 use crate::job_service::JobService;
-use crate::middleware::{auth_middleware, require_session};
+use crate::jwt_service::JwtConfig;
+use crate::middleware::{AuthUser, auth_middleware, jwt_middleware, require_session};
+use crate::oauth_code_store::OauthCodeStore;
 use crate::routes::{
-    api_job_router, api_router, auth_router, is_login_router, protected_router, web_job_router, web_router,
+    api_job_router, api_router, auth_router, is_login_router, protected_router, web_job_router,
+    web_router,
 };
 use crate::session_store::{AuthenticatedUser, SessionStore};
 use crate::user_store::UserStore;
@@ -44,7 +47,9 @@ mod error;
 mod github;
 mod job_owner;
 mod job_service;
+mod jwt_service;
 mod middleware;
+mod oauth_code_store;
 mod session_store;
 mod user_store;
 
@@ -81,11 +86,11 @@ async fn main() -> anyhow::Result<()> {
         .finish()?;
 
     let web_rate_limit_config = GovernorConfigBuilder::default()
-        .with_extractor(GonvernorExtension::<AuthenticatedUser>::new())
+        .with_extractor(GonvernorExtension::<AuthUser>::new())
         .quota_default(Quota::requests_per_second(nz!(5u32)))
         .finish()?;
     let web_job_rate_limit_config = GovernorConfigBuilder::default()
-        .with_extractor(GonvernorExtension::<AuthenticatedUser>::new())
+        .with_extractor(GonvernorExtension::<AuthUser>::new())
         .quota_default(Quota::requests_per_second(nz!(30u32)))
         .finish()?;
 
@@ -95,6 +100,13 @@ async fn main() -> anyhow::Result<()> {
         jobs: jobs.clone(),
         producer: kafka.clone(),
     };
+
+    let oauth_code_store = OauthCodeStore::new(db.clone());
+
+    let jwt = JwtConfig {
+        secret: config.jwt_secret.clone(),
+        expiration: config.jwt_expiration,
+    };
     let state = Arc::new(AppState::new(
         jobs,
         kafka,
@@ -103,6 +115,8 @@ async fn main() -> anyhow::Result<()> {
         users,
         session,
         Arc::new(job_service),
+        Arc::new(oauth_code_store),
+        Arc::new(jwt),
     ));
 
     let api_key_config = GovernorConfigBuilder::default()
@@ -123,11 +137,11 @@ async fn main() -> anyhow::Result<()> {
 
     let web_routes = web_router()
         .layer(GovernorLayer::new(web_rate_limit_config))
-        .layer(from_fn_with_state(state.clone(), require_session));
+        .layer(from_fn_with_state(state.clone(), jwt_middleware));
 
     let web_job_routes = web_job_router()
         .layer(GovernorLayer::new(web_job_rate_limit_config))
-        .layer(from_fn_with_state(state.clone(), require_session));
+        .layer(from_fn_with_state(state.clone(), jwt_middleware));
 
     let is_login_routes = is_login_router(state.clone());
 

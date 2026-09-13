@@ -1,12 +1,14 @@
 pub(crate) use std::sync::Arc;
 
-use crate::{jobs::JobStore, producer::KafkaProducer};
 use crate::apikey::ApiKey;
 use crate::apikey_store::ApikeyStore;
 use crate::config::AppConfig;
 use crate::job_service::JobService;
+use crate::jwt_service::JwtConfig;
+use crate::oauth_code_store::OauthCodeStore;
 use crate::session_store::SessionStore;
 use crate::user_store::UserStore;
+use crate::{jobs::JobStore, producer::KafkaProducer};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -18,11 +20,12 @@ pub struct AppState {
     pub config: AppConfig,
     pub users: Arc<UserStore>,
     pub sessions: Arc<SessionStore>,
-    pub job_service: Arc<JobService>
-    // pub db:Database
+    pub job_service: Arc<JobService>,
+    pub oauth_code_store: Arc<OauthCodeStore>,
+    pub jwt: Arc<JwtConfig>, // pub db:Database
 }
 
-impl AppState{
+impl AppState {
     pub fn new(
         job_store: Arc<JobStore>,
         kafka_producer: KafkaProducer,
@@ -30,8 +33,9 @@ impl AppState{
         app_config: AppConfig,
         users: Arc<UserStore>,
         sessions: Arc<SessionStore>,
-        job_service: Arc<JobService>
-        // metrics: Arc<Metrics>,
+        job_service: Arc<JobService>,
+        oauth_code_store: Arc<OauthCodeStore>,
+        jwt: Arc<JwtConfig>, // metrics: Arc<Metrics>,
     ) -> Self {
         Self {
             // semaphore: Arc::new(Semaphore::new(4)),
@@ -41,8 +45,9 @@ impl AppState{
             config: app_config,
             users,
             sessions,
-            job_service
-            // metrics,
+            job_service,
+            oauth_code_store,
+            jwt, // metrics,
         }
     }
 }
