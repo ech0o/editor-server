@@ -1,6 +1,7 @@
 use crate::github::GithubConfig;
 use anyhow::Context;
 use std::env;
+use chrono::Duration;
 
 #[derive(Clone)]
 pub struct AppConfig {
@@ -8,6 +9,8 @@ pub struct AppConfig {
     pub redirect_frontend_url: String,
     pub reqwest_proxy:String,
     pub github: GithubConfig,
+    pub jwt_secret:String,
+    pub jwt_expiration:Duration
 }
 // #[derive(Debug,thiserror::Error)]
 // pub enum ConfigError{
@@ -22,6 +25,8 @@ pub struct AppConfig {
 
 impl AppConfig {
     pub fn from_env() -> anyhow::Result<Self> {
+        let days = std::env::var("JWT_EXPIRATION_DAYS").context("JWT_EXPIRATION_DAYS not set")?;
+        let duration = Duration::days(days.parse::<i64>()?);
         Ok(Self {
             cookie_secure: std::env::var("COOKIE_SECURE")
                 .with_context(|| String::from("COOKIE_SECURE not found"))?
@@ -39,6 +44,9 @@ impl AppConfig {
             },
             redirect_frontend_url: std::env::var("REDIRECT_FRONTEND_URL")
                 .with_context(|| String::from("REDIRECT_FRONTEND_URL not found"))?,
+            jwt_secret: std::env::var("JWT_SECRET")
+                .with_context(|| String::from("JWT_SECRET not found"))?,
+            jwt_expiration: duration,
         })
     }
 }
