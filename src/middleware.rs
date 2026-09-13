@@ -32,6 +32,8 @@ pub async fn require_session(
         })?
         .ok_or(StatusCode::UNAUTHORIZED)?;
 
+    tracing::info!("session found for user_id: {}", session.user_id);
+
     request.extensions_mut().insert(AuthenticatedUser {
         user_id: session.user_id,
     });
