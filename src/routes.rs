@@ -91,11 +91,13 @@ pub fn auth_router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/auth/github", get(github_login))
         .route("/auth/github/callback", get(github_callback))
+
 }
 
 pub fn is_login_router(state:Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
         .route("/check", get(is_login))
+        .route("/test-cookie", get(test_cookie))
         .layer(from_fn_with_state(state, require_session))
 }
 
@@ -377,4 +379,9 @@ pub async fn is_login(
     Extension(_user): Extension<AuthenticatedUser>,
 ) -> Result<Json<bool>, ApiError> {
     Ok(Json(true))
+}
+pub async fn test_cookie(
+    Extension(user): Extension<AuthenticatedUser>,
+) -> Result<Json<String>, ApiError> {
+    Ok(Json(user.user_id.to_string()))
 }
