@@ -286,7 +286,7 @@ pub async fn github_callback(
     let session_cookie = Cookie::build(("session", session_token))
         .path("/")
         .http_only(true)
-        .same_site(SameSite::Lax)
+        .same_site(SameSite::None)
         .secure(state.config.cookie_secure)
         .max_age(time::Duration::days(30))
         .build();
