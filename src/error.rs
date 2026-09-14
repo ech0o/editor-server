@@ -28,7 +28,7 @@ pub enum ApiError {
     JobStore(JobStoreError),
     #[error("unauthorized")]
     Unauthorized,
-    #[error("github request failed：{0}")]
+    #[error("github request failed:{0}")]
     GithubRequest(#[from] reqwest::Error),
     #[error("database error")]
     DataBase(#[source] sqlx::Error),
@@ -36,7 +36,10 @@ pub enum ApiError {
     #[error(transparent)]
     InvalidRequest(anyhow::Error),
     #[error("wrong authorization code")]
-    InvalidAuthorizationCode
+    InvalidAuthorizationCode,
+
+    #[error("user not found")]
+    UserNotFound
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -158,6 +161,13 @@ impl IntoResponse for ApiError {
                 StatusCode::BAD_REQUEST,
                 Json(ErrorResponse {
                     error: String::from("invalid authorization code"),
+                }),
+            )
+                .into_response(),
+            ApiError::UserNotFound => (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: String::from("user not found"),
                 }),
             )
                 .into_response(),
