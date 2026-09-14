@@ -1,7 +1,7 @@
-use std::result;
 use crate::model::GithubUser;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
+use std::result;
 use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -19,11 +19,13 @@ pub struct UserStore {
     pub pool: PgPool,
 }
 impl UserStore {
-    
-    pub fn new(db:PgPool) -> UserStore {
+    pub fn new(db: PgPool) -> UserStore {
         Self { pool: db }
     }
-    pub async fn find_or_create_github_user(&self, github_user: &GithubUser) -> anyhow::Result<User> {
+    pub async fn find_or_create_github_user(
+        &self,
+        github_user: &GithubUser,
+    ) -> anyhow::Result<User> {
         let user_id = Uuid::new_v4();
         let result = sqlx::query_as!(
             User,
@@ -57,9 +59,30 @@ impl UserStore {
             github_user.login,
             github_user.avatar_url,
         )
-            .fetch_one(&self.pool)
+        .fetch_one(&self.pool)
         .await?;
         Ok(result)
     }
 
+    pub async fn get_user_info(&self, user_id: Uuid) -> anyhow::Result<Option<User>,sqlx::Error> {
+        sqlx::query_as!(
+            User,
+            r#"
+            SELECT  
+                id,
+                github_id,
+                github_login,
+                avatar_url,
+                created_at,
+                updated_at
+            FROM
+                users
+            WHERE
+                id = $1
+            "#,
+            user_id
+        )
+        .fetch_optional(&self.pool)
+        .await
+    }
 }
