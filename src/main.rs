@@ -22,8 +22,7 @@ use crate::jwt_service::JwtConfig;
 use crate::middleware::{AuthUser, auth_middleware, jwt_middleware, require_session};
 use crate::oauth_code_store::OauthCodeStore;
 use crate::routes::{
-    api_job_router, api_router, auth_router, is_login_router, protected_router, web_job_router,
-    web_router,
+    api_job_router, api_router, auth_router, protected_router, user_info_router, web_job_router, web_router,
 };
 use crate::session_store::{AuthenticatedUser, SessionStore};
 use crate::user_store::UserStore;
@@ -74,7 +73,7 @@ async fn main() -> anyhow::Result<()> {
     let api_keys = Arc::new(ApikeyStore::new(db.clone()));
     let users = Arc::new(UserStore::new(db.clone()));
     let cors = CorsLayer::new()
-        .allow_origin("http://localhost:3000".parse::<HeaderValue>()?)
+        .allow_origin(config.frontend_domain.parse::<HeaderValue>()?)
         .allow_methods(vec![Method::GET, Method::POST, Method::PUT, Method::DELETE])
         .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION])
         .allow_credentials(true);
@@ -143,7 +142,7 @@ async fn main() -> anyhow::Result<()> {
         .layer(GovernorLayer::new(web_job_rate_limit_config))
         .layer(from_fn_with_state(state.clone(), jwt_middleware));
 
-    let is_login_routes = is_login_router(state.clone());
+    let user_info_routes = user_info_router(state.clone());
 
     let auth_routes = auth_router();
     let protected_routes = protected_router(state.clone());
@@ -156,7 +155,7 @@ async fn main() -> anyhow::Result<()> {
         .merge(web_routes)
         .merge(web_job_routes)
         .merge(protected_routes)
-        .merge(is_login_routes)
+        .merge(user_info_routes)
         .layer(GovernorLayer::new(global_ip_config))
         .layer(cors)
         .with_state(state);

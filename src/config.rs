@@ -10,7 +10,8 @@ pub struct AppConfig {
     pub reqwest_proxy:String,
     pub github: GithubConfig,
     pub jwt_secret:String,
-    pub jwt_expiration:Duration
+    pub jwt_expiration:Duration,
+    pub frontend_domain:String
 }
 // #[derive(Debug,thiserror::Error)]
 // pub enum ConfigError{
@@ -30,6 +31,9 @@ impl AppConfig {
         Ok(Self {
             cookie_secure: std::env::var("COOKIE_SECURE")
                 .with_context(|| String::from("COOKIE_SECURE not found"))?
+                .parse()?,
+            frontend_domain: std::env::var("FRONTEND_DOMAIN")
+                .with_context(|| String::from("FRONTEND_DOMAIN not found"))?
                 .parse()?,
             reqwest_proxy: std::env::var("REQWEST_PROXY")
                 .with_context(|| String::from("REQWEST_PROXY not found"))
