@@ -177,3 +177,11 @@ pub struct ApiKeysResponse {
     pub created_at: DateTime<Utc>,
     pub revoked_at: Option<DateTime<Utc>>,
 }
+
+#[derive(Debug,Serialize,Deserialize)]
+pub struct UserInfoRespose{
+     pub id: Uuid,
+    pub github_id: i64,
+    pub github_login: String,
+    pub avatar_url: Option<String>,
+}
