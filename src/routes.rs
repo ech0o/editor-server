@@ -4,10 +4,10 @@ use crate::github::generate_oauth_state;
 use crate::job_owner::JobOwner;
 use crate::jobs::{JobStoreError, NewJob};
 use crate::jwt_service::{ExchangeCodeRequest, ExchangeCodeResponse};
-use crate::middleware::{jwt_middleware, require_session, AuthUser};
+use crate::middleware::{AuthUser, jwt_middleware, require_session};
 use crate::model::{
     ApiKeysResponse, CreateApiKeyRequest, CreateApiKeyResponse, GithubCallback,
-    GithubTokenResponse, GithubUser,
+    GithubTokenResponse, GithubUser, UserInfoRespose,
 };
 use crate::oauth_code_store::OauthCodeStore;
 use crate::session_store::AuthenticatedUser;
@@ -89,12 +89,12 @@ pub fn auth_router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/auth/github", get(github_login))
         .route("/auth/github/callback", get(github_callback))
-        .route("/auth/exchange",post(exchange_code))
+        .route("/auth/exchange", post(exchange_code))
 }
 
-pub fn is_login_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
+pub fn user_info_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
-        .route("/check", get(is_login))
+        .route("/user/info", get(get_user_info))
         .layer(from_fn_with_state(state, jwt_middleware))
 }
 
@@ -257,7 +257,7 @@ pub async fn github_callback(
         .await
         .map_err(ApiError::GithubRequest)?;
 
-    tracing::info!("token:{:?}", token);
+    tracing::debug!("token:{:?}", token);
     let github_user = client
         .get("https://api.github.com/user")
         .header(reqwest::header::ACCEPT, "application/vnd.github+json")
@@ -271,7 +271,7 @@ pub async fn github_callback(
         .json::<GithubUser>()
         .await
         .map_err(ApiError::GithubRequest)?;
-    tracing::info!("github_user:{:?}", github_user);
+    tracing::debug!("github_user:{:?}", github_user);
     // tracing::info!(headers=?res.headers(), "github_user_response:");
     // let body = res.text().await.map_err(ApiError::GithubRequest)?;
     // tracing::info!("github_user_response_body:{}", body);
@@ -375,9 +375,7 @@ pub async fn web_get_job(
     Ok(Json(JobResponse::from(job)))
 }
 
-pub async fn is_login(
-    Extension(_user): Extension<AuthUser>,
-) -> Result<Json<bool>, ApiError> {
+pub async fn is_login(Extension(_user): Extension<AuthUser>) -> Result<Json<bool>, ApiError> {
     Ok(Json(true))
 }
 pub async fn test_cookie(
@@ -400,5 +398,26 @@ pub async fn exchange_code(
     Ok(Json(ExchangeCodeResponse {
         access_token: token,
         token_type: "Bearer".to_string(),
+    }))
+}
+
+pub async fn get_user_info(
+    Extension(user): Extension<AuthUser>,
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<UserInfoRespose>, ApiError> {
+    let user_info = state
+        .users
+        .get_user_info(user.user_id)
+        .await
+        .map_err(|err| ApiError::DataBase(err))?;
+
+    let Some(user_info) = user_info else {
+        return Err(ApiError::UserNotFound);
+    };
+    Ok(Json(UserInfoRespose {
+        id: user_info.id,
+        github_id: user_info.github_id,
+        github_login: user_info.github_login,
+        avatar_url: user_info.avatar_url,
     }))
 }
