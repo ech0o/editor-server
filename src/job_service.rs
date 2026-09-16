@@ -44,7 +44,7 @@ impl JobService {
         owner.apply(&mut new_job);
         let job = self.jobs.create(&new_job).await?;
         let job_message = JobMessage { job_id: job.id };
-        if let Err(err) = self.producer.send_job(&job_message).await {
+        if let Err(err) = self.producer.send_job(&job_message,"judge.jobs").await {
             tracing::error!(
                 job_id=%job.id,
                 error=%err,
