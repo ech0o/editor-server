@@ -1,9 +1,9 @@
-use std::fmt::{Display, Formatter};
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 use crate::error::ApiError;
 use crate::jobs::Job;
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use std::fmt::{Display, Formatter};
+use uuid::Uuid;
 
 const MAX_CODE_SIZE: usize = 32 * 1024;
 const MAX_STDIN_SIZE: usize = 16 * 1024;
@@ -33,11 +33,10 @@ impl From<String> for RunStatus {
             "Queued" => RunStatus::Queued,
             "Running" => RunStatus::Running,
             "Success" => RunStatus::Success,
-            _=>panic!("Unknown status: {}", code),
+            _ => panic!("Unknown status: {}", code),
         }
     }
 }
-
 
 impl RunStatus {
     pub fn as_str(&self) -> &'static str {
@@ -51,6 +50,16 @@ impl RunStatus {
             RunStatus::Running => "Running",
             RunStatus::Success => "Success",
         }
+    }
+
+    pub fn is_finished(&self) -> bool {
+        if !matches!(self, RunStatus::Queued)
+            && !matches!(self, RunStatus::Running)
+            && !matches!(self, RunStatus::Queued)
+        {
+            return true;
+        }
+        false
     }
 }
 impl Display for RunStatus {
@@ -101,7 +110,7 @@ pub struct RunRequest {
 impl RunRequest {
     pub fn validate(&self) -> anyhow::Result<(), ApiError> {
         if self.code.len() > MAX_CODE_SIZE {
-             return Err(ApiError::PayloadTooLarge);
+            return Err(ApiError::PayloadTooLarge);
         }
         Ok(())
     }
@@ -134,7 +143,7 @@ impl From<Job> for JobResponse {
         }
     }
 }
-#[derive(Debug,Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct GithubTokenResponse {
     pub access_token: String,
     pub token_type: String,
@@ -142,7 +151,7 @@ pub struct GithubTokenResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct GithubUser{
+pub struct GithubUser {
     #[serde(rename = "id")]
     pub github_id: i64,
     #[serde(skip)]
@@ -154,7 +163,7 @@ pub struct GithubUser{
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct GithubCallback{
+pub struct GithubCallback {
     pub code: String,
     pub state: String,
 }
@@ -178,9 +187,9 @@ pub struct ApiKeysResponse {
     pub revoked_at: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug,Serialize,Deserialize)]
-pub struct UserInfoRespose{
-     pub id: Uuid,
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UserInfoRespose {
+    pub id: Uuid,
     pub github_id: i64,
     pub github_login: String,
     pub avatar_url: Option<String>,
