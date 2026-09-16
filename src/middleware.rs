@@ -90,7 +90,7 @@ pub async fn jwt_middleware(
         .and_then(|value| value.strip_prefix("Bearer "))
         .ok_or(StatusCode::UNAUTHORIZED)?;
 
-    tracing::info!("jwt token found: {}", token);
+    tracing::debug!("jwt token found: {}", token);
 
     let claims = state
         .jwt
@@ -103,7 +103,7 @@ pub async fn jwt_middleware(
         user_id: claims.sub,
     };
 
-    tracing::info!("jwt claims found for user_id: {}", user.user_id);
+    tracing::debug!("jwt claims found for user_id: {}", user.user_id);
 
     request.extensions_mut().insert(user);
     Ok(next.run(request).await)
