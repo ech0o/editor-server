@@ -11,7 +11,8 @@ pub struct AppConfig {
     pub github: GithubConfig,
     pub jwt_secret:String,
     pub jwt_expiration:Duration,
-    pub frontend_domain:String
+    pub frontend_domain:String,
+    pub kafka_broker:String,
 }
 // #[derive(Debug,thiserror::Error)]
 // pub enum ConfigError{
@@ -34,6 +35,9 @@ impl AppConfig {
                 .parse()?,
             frontend_domain: std::env::var("FRONTEND_DOMAIN")
                 .with_context(|| String::from("FRONTEND_DOMAIN not found"))?
+                .parse()?,
+            kafka_broker: std::env::var("KAFKA_BROKERS")
+                .with_context(|| String::from("KAFKA_BROKER not found"))?
                 .parse()?,
             reqwest_proxy: std::env::var("REQWEST_PROXY")
                 .with_context(|| String::from("REQWEST_PROXY not found"))
