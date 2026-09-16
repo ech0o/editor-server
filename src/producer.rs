@@ -24,11 +24,11 @@ impl KafkaProducer {
         Ok(Self { producer })
     }
 
-    pub async fn send_job(&self, job: &JobMessage) -> anyhow::Result<()> {
+    pub async fn send_job(&self, job: &JobMessage,topic:&str) -> anyhow::Result<()> {
         let payload = serde_json::to_vec(job)?;
         self.producer
             .send(
-                FutureRecord::to("judge.jobs")
+                FutureRecord::to(topic)
                     .key(&job.job_id.to_string())
                     .payload(&payload),
                 Duration::from_secs(5),
