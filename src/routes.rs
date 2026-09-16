@@ -11,6 +11,7 @@ use crate::model::{
 };
 use crate::oauth_code_store::OauthCodeStore;
 use crate::session_store::AuthenticatedUser;
+use crate::websocket::websocket_handler::job_ws;
 use crate::{
     error::ApiError,
     jobs::Job,
@@ -75,6 +76,11 @@ pub fn web_job_router() -> Router<Arc<AppState>> {
         "/web/run/{id}",
         get(web_get_job).layer(ConcurrencyLimitLayer::new(MAX_CONCURRENT_RUN_REQUESTS)),
     )
+        
+}
+
+pub fn ws_routes()->Router<Arc<AppState>>{
+    Router::new().route("/ws/job/{id}",get(job_ws))
 }
 
 pub fn protected_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
