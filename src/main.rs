@@ -7,6 +7,7 @@ use axum_governor::{
     GovernorConfigBuilder, GovernorLayer, PeerIp, Quota,
     extractor::Extension as GonvernorExtension, nz,
 };
+use rdkafka::consumer::Consumer;
 use sqlx::PgPool;
 use std::net::SocketAddr;
 use std::num::NonZeroU32;
@@ -22,11 +23,13 @@ use crate::jwt_service::JwtConfig;
 use crate::middleware::{AuthUser, auth_middleware, jwt_middleware, require_session};
 use crate::oauth_code_store::OauthCodeStore;
 use crate::routes::{
-    api_job_router, api_router, auth_router, protected_router, user_info_router, web_job_router, web_router,
+    api_job_router, api_router, auth_router, protected_router, user_info_router, web_job_router, web_router, ws_routes,
 };
 use crate::session_store::{AuthenticatedUser, SessionStore};
 use crate::user_store::UserStore;
+use crate::websocket::manager::WsManager;
 use crate::{jobs::JobStore, producer::KafkaProducer, state::AppState};
+use crate::kafka::consumer::{consume_job_event, KafkaConsumer};
 
 mod jobs;
 
@@ -51,6 +54,8 @@ mod middleware;
 mod oauth_code_store;
 mod session_store;
 mod user_store;
+mod kafka;
+mod websocket;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -106,6 +111,14 @@ async fn main() -> anyhow::Result<()> {
         secret: config.jwt_secret.clone(),
         expiration: config.jwt_expiration,
     };
+    let consumer = KafkaConsumer::create_consumer(
+        config.kafka_broker.clone(),
+        "jobs-events".to_string()
+    )?;
+
+  
+
+    let ws_manager = Arc::new(WsManager::new());
     let state = Arc::new(AppState::new(
         jobs,
         kafka,
@@ -116,6 +129,7 @@ async fn main() -> anyhow::Result<()> {
         Arc::new(job_service),
         Arc::new(oauth_code_store),
         Arc::new(jwt),
+        Arc::clone(&ws_manager),
     ));
 
     let api_key_config = GovernorConfigBuilder::default()
@@ -156,18 +170,23 @@ async fn main() -> anyhow::Result<()> {
         .merge(web_job_routes)
         .merge(protected_routes)
         .merge(user_info_routes)
+        .merge(ws_routes())
         .layer(GovernorLayer::new(global_ip_config))
         .layer(cors)
         .with_state(state);
     let listener = TcpListener::bind("0.0.0.0:4000").await?;
     tracing::info!("Listening on http://0.0.0.0:4000");
 
+    tokio::spawn(
+        consume_job_event(consumer,ws_manager)
+    );
+
     axum::serve(
         listener,
         router.into_make_service_with_connect_info::<SocketAddr>(),
     )
-    .with_graceful_shutdown(shutdown_signal())
-    .await?;
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
     Ok(())
 }
 
