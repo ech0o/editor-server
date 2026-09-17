@@ -39,7 +39,10 @@ pub enum ApiError {
     InvalidAuthorizationCode,
 
     #[error("user not found")]
-    UserNotFound
+    UserNotFound,
+    
+    #[error(transparent)]
+    RedisError(#[from] redis::RedisError)
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -168,6 +171,13 @@ impl IntoResponse for ApiError {
                 StatusCode::NOT_FOUND,
                 Json(ErrorResponse {
                     error: String::from("user not found"),
+                }),
+            )
+                .into_response(),
+            ApiError::RedisError(_err) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: String::from("redis server error"),
                 }),
             )
                 .into_response(),
