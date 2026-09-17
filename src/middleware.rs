@@ -1,5 +1,6 @@
 use crate::apikey::hash_api_key;
 use crate::authenticated::ApiKeyIdentity;
+use crate::jwt_service::Claims;
 use crate::session_store::AuthenticatedUser;
 use crate::state::AppState;
 use axum::extract::{Request, State};
@@ -10,14 +11,16 @@ use axum_extra::TypedHeader;
 use axum_extra::extract::CookieJar;
 use headers::Authorization;
 use headers::authorization::Bearer;
-use std::sync::Arc;
 use jsonwebtoken::{DecodingKey, Validation};
+use redis::AsyncCommands;
+use std::sync::Arc;
 use uuid::Uuid;
-use crate::jwt_service::Claims;
 
-#[derive(Clone, Debug,PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct AuthUser {
     pub user_id: Uuid,
+    pub exp: usize,
+    pub jti: String,
 }
 pub async fn require_session(
     State(state): State<Arc<AppState>>,
@@ -80,8 +83,6 @@ pub async fn auth_middleware(
     Ok(next.run(request).await)
 }
 
-
-
 pub async fn jwt_middleware(
     State(state): State<Arc<AppState>>,
     mut request: Request,
@@ -96,15 +97,39 @@ pub async fn jwt_middleware(
 
     tracing::debug!("jwt token found: {}", token);
 
-    let claims = state
-        .jwt
-        .verify_token(&token)
+    let claims = state.jwt.verify_token(&token).map_err(|err| {
+        tracing::error!(error=%err, "failed to verify jwt token");
+        StatusCode::UNAUTHORIZED
+    })?;
+
+    let revoked_key = format!("jwt:revoked:{}", claims.jti);
+
+    let revoked: bool = state
+        .redis
+        .clone()
+        .exists(&revoked_key)
+        .await
         .map_err(|err| {
-            tracing::error!(error=%err, "failed to verify jwt token");
-            StatusCode::UNAUTHORIZED})?;
+            tracing::error!(
+                error = %err,
+                "Redis error while checking JWT revocation"
+            );
+
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    if revoked {
+        tracing::debug!(
+            jti= %claims.jti,
+            "JWT has been revoked"
+        );
+        return Err(StatusCode::UNAUTHORIZED);
+    }
 
     let user = AuthUser {
         user_id: claims.sub,
+        exp:claims.exp,
+        jti:claims.jti
     };
 
     tracing::debug!("jwt claims found for user_id: {}", user.user_id);
