@@ -56,6 +56,7 @@ mod session_store;
 mod user_store;
 mod kafka;
 mod websocket;
+mod ws_routes;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -176,7 +177,7 @@ async fn main() -> anyhow::Result<()> {
         .with_state(state);
     let listener = TcpListener::bind("0.0.0.0:4000").await?;
     tracing::info!("Listening on http://0.0.0.0:4000");
-
+    consumer.subscribe(&["jobs.events"])?;
     tokio::spawn(
         consume_job_event(consumer,ws_manager)
     );
