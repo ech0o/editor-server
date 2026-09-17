@@ -14,7 +14,7 @@ use std::num::NonZeroU32;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tower_http::cors::{Any, CorsLayer};
-use tracing::Level;
+use tracing::{trace, Level};
 
 use crate::apikey_store::ApikeyStore;
 use crate::authenticated::ApiKeyIdentity;
@@ -116,8 +116,10 @@ async fn main() -> anyhow::Result<()> {
         config.kafka_broker.clone(),
         "jobs-events".to_string()
     )?;
+    let redis_addr = std::env::var("REDIS_URL")?;
 
-  
+    let redis_client = redis::Client::open(redis_addr.as_str())?;
+    let redis = redis_client.get_connection_manager().await?;
 
     let ws_manager = Arc::new(WsManager::new());
     let state = Arc::new(AppState::new(
@@ -131,6 +133,7 @@ async fn main() -> anyhow::Result<()> {
         Arc::new(oauth_code_store),
         Arc::new(jwt),
         Arc::clone(&ws_manager),
+        redis,
     ));
 
     let api_key_config = GovernorConfigBuilder::default()
