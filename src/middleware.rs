@@ -11,7 +11,9 @@ use axum_extra::extract::CookieJar;
 use headers::Authorization;
 use headers::authorization::Bearer;
 use std::sync::Arc;
+use jsonwebtoken::{DecodingKey, Validation};
 use uuid::Uuid;
+use crate::jwt_service::Claims;
 
 #[derive(Clone, Debug,PartialEq, Eq, Hash)]
 pub struct AuthUser {
@@ -77,6 +79,8 @@ pub async fn auth_middleware(
     });
     Ok(next.run(request).await)
 }
+
+
 
 pub async fn jwt_middleware(
     State(state): State<Arc<AppState>>,
