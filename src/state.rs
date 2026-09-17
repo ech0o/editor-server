@@ -10,6 +10,7 @@ use crate::session_store::SessionStore;
 use crate::user_store::UserStore;
 use crate::{jobs::JobStore, producer::KafkaProducer};
 use crate::websocket::manager::WsManager;
+use redis::aio::ConnectionManager;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -25,6 +26,7 @@ pub struct AppState {
     pub oauth_code_store: Arc<OauthCodeStore>,
     pub jwt: Arc<JwtConfig>, 
     pub ws_manager: Arc<WsManager>,
+    pub redis: ConnectionManager
 }
 
 impl AppState {
@@ -39,6 +41,7 @@ impl AppState {
         oauth_code_store: Arc<OauthCodeStore>,
         jwt: Arc<JwtConfig>, // metrics: Arc<Metrics>
         ws_manager: Arc<WsManager>,
+        redis: ConnectionManager
     ) -> Self {
         Self {
             // semaphore: Arc::new(Semaphore::new(4)),
@@ -52,6 +55,7 @@ impl AppState {
             oauth_code_store,
             jwt, // metrics,
             ws_manager,
+            redis,
         }
     }
 }
