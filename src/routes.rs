@@ -3,7 +3,7 @@ use crate::authenticated::ApiKeyIdentity;
 use crate::github::generate_oauth_state;
 use crate::job_owner::JobOwner;
 use crate::jobs::{JobStoreError, NewJob};
-use crate::jwt_service::{ExchangeCodeRequest, ExchangeCodeResponse};
+use crate::jwt_service::{create_ws_ticket, ExchangeCodeRequest, ExchangeCodeResponse};
 use crate::middleware::{AuthUser, jwt_middleware, require_session};
 use crate::model::{
     ApiKeysResponse, CreateApiKeyRequest, CreateApiKeyResponse, GithubCallback,
@@ -11,7 +11,6 @@ use crate::model::{
 };
 use crate::oauth_code_store::OauthCodeStore;
 use crate::session_store::AuthenticatedUser;
-use crate::websocket::websocket_handler::job_ws;
 use crate::{
     error::ApiError,
     jobs::Job,
@@ -41,6 +40,7 @@ use tower::ServiceExt;
 use tower::limit::ConcurrencyLimitLayer;
 use url::Url;
 use uuid::Uuid;
+use crate::ws_routes::{create_ws_ticket_route, job_ws};
 
 const MAX_CONCURRENT_RUN_REQUESTS: usize = 32;
 
@@ -76,6 +76,7 @@ pub fn web_job_router() -> Router<Arc<AppState>> {
         "/web/run/{id}",
         get(web_get_job).layer(ConcurrencyLimitLayer::new(MAX_CONCURRENT_RUN_REQUESTS)),
     )
+        .route("/ws/ticket",post(create_ws_ticket_route))
         
 }
 
