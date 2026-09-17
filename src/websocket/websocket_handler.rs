@@ -6,7 +6,6 @@ use crate::middleware::AuthUser;
 use crate::state::AppState;
 use crate::websocket::manager::WsManager;
 use anyhow::anyhow;
-use async_trait::async_trait;
 use axum::extract::ws::{Message, WebSocket};
 use axum::extract::{FromRequestParts, Path, State, WebSocketUpgrade};
 use axum::http::request::Parts;
