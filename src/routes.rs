@@ -36,6 +36,8 @@ use headers::Authorization;
 use headers::authorization::Bearer;
 use rdkafka::client;
 use std::sync::Arc;
+use chrono::Utc;
+use redis::AsyncCommands;
 use tower::ServiceExt;
 use tower::limit::ConcurrencyLimitLayer;
 use url::Url;
@@ -77,6 +79,7 @@ pub fn web_job_router() -> Router<Arc<AppState>> {
         get(web_get_job).layer(ConcurrencyLimitLayer::new(MAX_CONCURRENT_RUN_REQUESTS)),
     )
         .route("/ws/ticket",post(create_ws_ticket_route))
+        .route("/auth/logout", post(logout))
         
 }
 
@@ -427,4 +430,27 @@ pub async fn get_user_info(
         github_login: user_info.github_login,
         avatar_url: user_info.avatar_url,
     }))
+}
+
+pub async fn logout(
+    Extension(user): Extension<AuthUser>,
+    State(state): State<Arc<AppState>>,
+) -> Result<StatusCode, ApiError> {
+    let now = Utc::now().timestamp();
+
+    let remaining = user.exp as i64 - now;
+    if remaining <= 0 {
+        return Ok(StatusCode::NO_CONTENT);
+    }
+    let key =format!("jwt:revoked:{}", user.jti);
+
+    state.redis
+        .clone()
+        .set_ex::<_,_,()>(&key,1,remaining as u64)
+        .await.map_err(|err|{
+        tracing::error!(error=%err,jti=%user.jti,"failed to revoke jti");
+        ApiError::RedisError(err)
+    })?;
+
+    Ok(StatusCode::NO_CONTENT)
 }
