@@ -1,3 +1,4 @@
+use std::time::SystemTime;
 use chrono::{Duration, Utc};
 use jsonwebtoken::{encode, Header, EncodingKey, DecodingKey, Validation, Algorithm, decode};
 use serde::{Deserialize, Serialize};
@@ -7,6 +8,13 @@ use uuid::Uuid;
 pub struct Claims {
     pub(crate) sub: Uuid,
     exp: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct WsClaims{
+    pub sub: Uuid,
+    pub exp: usize,
+    pub job_id:Uuid
 }
 
 #[derive(Debug, Deserialize)]
@@ -51,4 +59,25 @@ impl JwtConfig {
         )?;
         Ok(token_data.claims)
     }
+}
+
+pub fn create_ws_ticket(
+    user_id:Uuid,
+    job_id:Uuid,
+    secret:&[u8],
+)->anyhow::Result<String, jsonwebtoken::errors::Error>{
+    let exp = SystemTime::now()
+    .duration_since(SystemTime::UNIX_EPOCH)
+    .unwrap()
+        .as_secs() +30;
+    let claims = WsClaims{
+        sub: user_id,
+        exp: exp as usize,
+        job_id,
+    };
+    encode(
+        &Header::default(),
+        &claims,
+        &EncodingKey::from_secret(secret.as_ref()),
+    )
 }
